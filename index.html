@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<head>
+  <title>NFC</title>
+</head>
+<html>
+  <body>
+    <div style="display: flex; flex-direction: column; width: 320px; gap: 8px">
+      <h1>NFC</h1>
+
+      <button type="button" class="js__sensor--connect">Connect</button>
+
+      <div style="display: flex; gap: 8px">
+        <span>ID :</span>
+        <input type="text" class="js__card--id" value="" style="flex: 1" disabled />
+      </div>
+    </div>
+
+    <script type="module">
+      document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOM content loaded.');
+
+        document.querySelector('.js__sensor--connect').addEventListener('click', async () => {
+          // Setup device
+          // * await navigator.usb.getDevices()
+          const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x054c, productId: 0x0dc9 }] });
+
+          const descriptor = device.configuration.configurationValue; // => 1
+          const ifnumber = device.configuration.interfaces[descriptor].interfaceNumber; // => 1
+
+          const endpoints = device.configuration.interfaces[descriptor].alternate.endpoints;
+          const istream = endpoints.find((e) => e.direction === 'in');
+          const ostream = endpoints.find((e) => e.direction === 'out');
+
+          const isnumber = istream.endpointNumber; // => 2
+          const osnumber = ostream.endpointNumber; // => 2
+
+          // Open connection
+          await device.open();
+          await device.claimInterface(ifnumber);
+
+          // Mode : ISO/IEC 14443 Type A
+          await Promise.all([
+            (async () => {
+              const packet = await device.transferIn(isnumber, 64);
+              const buffer = packet2buffer(packet);
+              console.log(bufferAsHexStrings(buffer)); // DEBUG
+            })(),
+            (async () => {
+              await sleep(50);
+              await device.transferOut(
+                osnumber,
+                cmd2packet([0xff, 0x50, 0x00, 0x02, 0x04, 0x8f, 0x02, 0x00, 0x03, 0x00])
+              );
+            })()
+          ]);
+
+          sleep(50);
+
+          // Read UID
+          await Promise.all([
+            (async () => {
+              const packet = await device.transferIn(isnumber, 64);
+              const buffer = packet2buffer(packet);
+              console.log(bufferAsHexStrings(buffer)); // DEBUG
+
+              const bodySize = buffer[1];
+              const body = buffer.slice(10, 10 + bodySize - 2);
+
+              const id = body.reduce((s, v) => `${s}${v.toString(16).padStart(2, '0')}`, '');
+              document.querySelector('.js__card--id').value = id ? `0x${id}` : '';
+            })(),
+            (async () => {
+              await sleep(50);
+              await device.transferOut(osnumber, cmd2packet([0xff, 0xca, 0x00, 0x00]));
+            })()
+          ]);
+
+          // Close connection
+          await device.releaseInterface(ifnumber);
+          await device.close();
+        });
+
+        const sleep = (ms) => new Promise((r) => setTimeout(() => r(0), ms));
+
+        const cmd2packet = (cmd, seq = 0) => {
+          const data = new Uint8Array(cmd);
+          const header = 0x6b;
+          const length = [
+            0xff & data.length,
+            0xff & (data.length >> 8),
+            0xff & (data.length >> 16),
+            0xff & (data.length >> 24)
+          ];
+          const slot = 0x00;
+          return new Uint8Array([header, ...length, slot, 0xff & seq, 0x00, 0x00, 0x00, ...cmd]);
+        };
+
+        const packet2buffer = (packet) => {
+          let buffer = [];
+          for (let i = packet.data.byteOffset; i < packet.data.byteLength; i++) {
+            buffer.push(packet.data.getUint8(i));
+          }
+          return buffer;
+        };
+
+        const bufferAsHexStrings = (buffer) => buffer.map((value) => `0x${value.toString(16).padStart(2, '0')}`);
+      });
+    </script>
+  </body>
+</html>

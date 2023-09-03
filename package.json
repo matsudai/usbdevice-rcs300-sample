@@ -1,0 +1,13 @@
+{
+  "name": "sample",
+  "version": "1.0.0",
+  "description": "NFC",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "serve": "serve -p 3000"
+  },
+  "dependencies": {
+    "serve": "^14.2.1"
+  }
+}
